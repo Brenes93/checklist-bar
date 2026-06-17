@@ -199,6 +199,60 @@ function App() {
     loadTasks();
   }
 
+  async function moveTaskUp(task) {
+  const index = tasks.findIndex(
+    (t) => t.id === task.id
+  );
+
+  if (index === 0) return;
+
+  const currentTask = tasks[index];
+  const previousTask = tasks[index - 1];
+
+  await supabase
+    .from("tasks")
+    .update({
+      sort_order: previousTask.sort_order,
+    })
+    .eq("id", currentTask.id);
+
+  await supabase
+    .from("tasks")
+    .update({
+      sort_order: currentTask.sort_order,
+    })
+    .eq("id", previousTask.id);
+
+  loadTasks();
+}
+
+async function moveTaskDown(task) {
+  const index = tasks.findIndex(
+    (t) => t.id === task.id
+  );
+
+  if (index === tasks.length - 1) return;
+
+  const currentTask = tasks[index];
+  const nextTask = tasks[index + 1];
+
+  await supabase
+    .from("tasks")
+    .update({
+      sort_order: nextTask.sort_order,
+    })
+    .eq("id", currentTask.id);
+
+  await supabase
+    .from("tasks")
+    .update({
+      sort_order: currentTask.sort_order,
+    })
+    .eq("id", nextTask.id);
+
+  loadTasks();
+}
+
   // --- Cierre ---
 
   async function finishClosing() {
@@ -223,7 +277,8 @@ function App() {
     .insert({
       responsible,
       notes,
-      pending_tasks: pendingCount
+      pending_tasks: pendingCount,
+      close_type: "manual"
     })
       .select()
       .single();
@@ -530,23 +585,47 @@ loadForgottenTasks();
                     </p>
                   )}
                   <button
-                    onClick={() => editTask(task)}
-                    style={{ marginRight: "8px", padding: "5px 10px" }}
-                  >
-                    ✏️ Editar
-                  </button>
-                  <button
-                    onClick={() => deleteTask(task.id)}
-                    style={{
-                      background: "#ef4444",
-                      color: "white",
-                      border: "none",
-                      padding: "5px 10px",
-                      borderRadius: "5px",
-                    }}
-                  >
-                    🗑️ Eliminar
-                  </button>
+  onClick={() => moveTaskUp(task)}
+  style={{
+    marginRight: "5px",
+    padding: "5px 10px",
+  }}
+>
+  ⬆️
+</button>
+
+<button
+  onClick={() => moveTaskDown(task)}
+  style={{
+    marginRight: "5px",
+    padding: "5px 10px",
+  }}
+>
+  ⬇️
+</button>
+
+<button
+  onClick={() => editTask(task)}
+  style={{
+    marginRight: "5px",
+    padding: "5px 10px",
+  }}
+>
+  ✏️ Editar
+</button>
+
+<button
+  onClick={() => deleteTask(task.id)}
+  style={{
+    background: "#ef4444",
+    color: "white",
+    border: "none",
+    padding: "5px 10px",
+    borderRadius: "5px",
+  }}
+>
+  🗑️ Eliminar
+</button>
                 </div>
               ))}
             </div>
@@ -613,6 +692,15 @@ loadForgottenTasks();
         <div>
           Responsable: {closing.responsible}
         </div>
+        <div>
+  Tipo: {
+    closing.close_type === "manual"
+      ? "Manual"
+      : closing.close_type === "automatic"
+      ? "Automático"
+      : "No iniciado"
+  }
+</div>
         <div>
   Pendientes: {closing.pending_tasks}
 </div>
@@ -817,19 +905,26 @@ setClosingStarted(true);
 
           <div
   style={{
-    background: "#f3f4f6",
-    padding: "12px",
-    borderRadius: "8px",
+    background: "#1f2937",
+    color: "white",
+    padding: "15px",
+    borderRadius: "10px",
     marginBottom: "15px",
+    textAlign: "center",
     fontWeight: "bold",
-    fontSize: "18px"
+    fontSize: "22px"
   }}
 >
-  Responsable: {responsible}
+  👤 {responsible}
 </div>
 
           {/* FIX: cada tarea tiene su propio div contenedor con key */}
-          {tasks.map((task) => (
+          {[...tasks]
+  .sort(
+    (a, b) =>
+      a.completed - b.completed
+  )
+  .map((task) => (
             <div
               key={task.id}
               style={{
@@ -863,10 +958,14 @@ setClosingStarted(true);
                 }}
               >
                 <input
-                  type="checkbox"
-                  checked={task.completed}
-                  onChange={() => toggleTask(task)}
-                />
+  type="checkbox"
+  checked={task.completed}
+  onChange={() => toggleTask(task)}
+  style={{
+    width: "28px",
+    height: "28px"
+  }}
+/>
                 {task.completed ? "Completada ✅" : "Pendiente"}
               </label>
 
