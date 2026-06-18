@@ -4,5 +4,16 @@
       "path": "/api/auto-close",
       "schedule": "0 9 * * *"
     }
+  ],
+  "functions": {
+    "api/*.js": {
+      "runtime": "@vercel/node"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/auto-close",
+      "schedule": "0 9 * * *"
+    }
   ]
 }
