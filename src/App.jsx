@@ -693,13 +693,10 @@ loadForgottenTasks();
           Responsable: {closing.responsible}
         </div>
         <div>
-  Tipo: {
-    closing.close_type === "manual"
-      ? "Manual"
-      : closing.close_type === "automatic"
-      ? "Automático"
-      : "No iniciado"
-  }
+  Estado:{" "}
+  {closing.close_type === "manual" && "🟢 Manual"}
+  {closing.close_type === "automatic" && "🟠 Automático"}
+  {closing.close_type === "missing" && "🔴 Sin registrar"}
 </div>
         <div>
   Pendientes: {closing.pending_tasks}
