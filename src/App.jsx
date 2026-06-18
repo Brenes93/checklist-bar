@@ -24,10 +24,15 @@ function App() {
   const [closingDetails, setClosingDetails] = useState([]);
   const [forgottenTasks, setForgottenTasks] = useState({});
   const [openedEmployee, setOpenedEmployee] = useState(null);
+  const [taskIncidents, setTaskIncidents] = useState({});
+  const [lastClosing, setLastClosing] = useState(null);
+const [openingEmployee, setOpeningEmployee] = useState("");
+const [openingTasks, setOpeningTasks] = useState([]);
 
   // --- Carga de datos ---
 
   async function loadClosings() {
+
   const { data } = await supabase
     .from("closings")
     .select("*")
@@ -36,6 +41,35 @@ function App() {
     });
 
   setClosings(data || []);
+  
+}
+
+  async function loadLastClosing() {
+
+  const { data: closing } =
+    await supabase
+      .from("closings")
+      .select("*")
+      .order("created_at", {
+        ascending: false
+      })
+      .limit(1)
+      .single();
+
+  if (!closing) return;
+
+  setLastClosing(closing);
+
+  const { data: tasks } =
+    await supabase
+      .from("closing_tasks")
+      .select("*")
+      .eq(
+        "closing_id",
+        closing.id
+      );
+
+  setOpeningTasks(tasks || []);
 }
 
   async function loadForgottenTasks() {
@@ -290,10 +324,12 @@ async function moveTaskDown(task) {
 
     const closingId = closingData.id;
     const closingTasks = tasks.map((task) => ({
-      closing_id: closingId,
-      task_name: task.title,
-      completed: task.completed,
-    }));
+  closing_id: closingId,
+  task_name: task.title,
+  completed: task.completed,
+  incident:
+    taskIncidents[task.id] || null
+}));
 
     await supabase.from("closing_tasks").insert(closingTasks);
     await supabase
@@ -472,7 +508,20 @@ setSelectedResponsible("");
 )}
   </div>
 )}
-
+<button
+  onClick={() => {
+  loadLastClosing();
+  setScreen("opening");
+}}
+  style={{
+    width: "100%",
+    padding: "20px",
+    marginBottom: "15px",
+    fontSize: "18px",
+  }}
+>
+  🌅 Apertura
+</button>
 
           {/* BOTÓN ADMINISTRAR — FIX: ahora cambia screen a "admin" */}
           <button
@@ -829,6 +878,155 @@ loadForgottenTasks();
   </div>
 )}
 
+{screen === "opening" && (
+  <div>
+
+    <button
+      onClick={() => setScreen("home")}
+      style={{
+        width: "100%",
+        padding: "10px",
+        marginBottom: "15px"
+      }}
+    >
+      ⬅️ Volver
+    </button>
+
+    <h2>🌅 Apertura</h2>
+
+    <select
+      value={openingEmployee}
+      onChange={(e) =>
+        setOpeningEmployee(e.target.value)
+      }
+      style={{
+        width: "100%",
+        padding: "10px",
+        marginBottom: "15px"
+      }}
+    >
+      <option value="">
+        Seleccionar empleado...
+      </option>
+
+      {employees.map((emp) => (
+        <option
+          key={emp.id}
+          value={emp.name}
+        >
+          {emp.name}
+        </option>
+      ))}
+    </select>
+
+    {lastClosing && (
+      <div
+        style={{
+          border: "1px solid #ccc",
+          padding: "15px",
+          borderRadius: "10px",
+          marginBottom: "15px"
+        }}
+      >
+        <strong>
+          Último cierre
+        </strong>
+
+        <div>
+          Responsable:
+          {" "}
+          {lastClosing.responsible}
+        </div>
+
+        <div>
+          Estado:
+          {" "}
+          {lastClosing.close_type}
+        </div>
+      </div>
+    )}
+
+    {openingTasks.map((task) => (
+      <div
+        key={task.id}
+        style={{
+          border: "1px solid #ccc",
+          padding: "15px",
+          borderRadius: "8px",
+          marginBottom: "10px"
+        }}
+      >
+        <div>
+          {task.completed
+            ? "✅ "
+            : "❌ "}
+          {task.task_name}
+        </div>
+
+        {task.incident && (
+          <div
+            style={{
+              marginTop: "5px",
+              color: "#b45309"
+            }}
+          >
+            ⚠️ {task.incident}
+          </div>
+        )}
+
+        {task.completed && (
+          <button
+            onClick={async () => {
+
+              if (!openingEmployee) {
+                alert(
+                  "Selecciona empleado"
+                );
+                return;
+              }
+
+              const observation =
+                prompt(
+                  "Describe la incidencia detectada"
+                );
+
+              if (!observation)
+                return;
+
+              await supabase
+                .from(
+                  "opening_incidents"
+                )
+                .insert({
+                  closing_id:
+                    lastClosing.id,
+
+                  task_name:
+                    task.task_name,
+
+                  employee:
+                    openingEmployee,
+
+                  observation
+                });
+
+              alert(
+                "Incidencia guardada"
+              );
+            }}
+            style={{
+              marginTop: "10px"
+            }}
+          >
+            ⚠️ Reportar incidencia
+          </button>
+        )}
+      </div>
+    ))}
+
+  </div>
+)}
+
       {/* PANTALLA CIERRE — selección de responsable */}
       {screen === "closing" && !closingStarted && (
         <div
@@ -954,6 +1152,36 @@ setClosingStarted(true);
                   fontSize: "18px",
                 }}
               >
+                <div style={{ marginTop: "10px" }}>
+  <button
+    onClick={() => {
+      const text = prompt(
+        "Incidencia de esta tarea"
+      );
+
+      if (!text) return;
+
+      setTaskIncidents((prev) => ({
+        ...prev,
+        [task.id]: text
+      }));
+    }}
+  >
+    ⚠️ Incidencia
+  </button>
+
+  {taskIncidents[task.id] && (
+    <div
+      style={{
+        marginTop: "8px",
+        color: "#b45309",
+        fontWeight: "bold"
+      }}
+    >
+      ⚠️ {taskIncidents[task.id]}
+    </div>
+  )}
+</div>
                 <input
   type="checkbox"
   checked={task.completed}
