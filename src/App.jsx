@@ -323,6 +323,8 @@ async function moveTaskDown(task) {
     }
 
     const closingId = closingData.id;
+    console.log(taskIncidents);
+
     const closingTasks = tasks.map((task) => ({
   closing_id: closingId,
   task_name: task.title,
@@ -330,8 +332,14 @@ async function moveTaskDown(task) {
   incident:
     taskIncidents[task.id] || null
 }));
+console.log(closingTasks);
+    const { error: insertError } = await supabase
+  .from("closing_tasks")
+  .insert(closingTasks);
 
-    await supabase.from("closing_tasks").insert(closingTasks);
+if (insertError) {
+  alert(insertError.message);
+}
     await supabase
       .from("tasks")
       .update({ completed: false, employee: null })
@@ -341,6 +349,7 @@ async function moveTaskDown(task) {
       .update({ responsible: null, notes: null, started: false })
       .eq("id", 1);
 
+    setTaskIncidents({});
     setResponsible("");
     setNotes("");
     setClosingStarted(false);
@@ -779,6 +788,42 @@ loadForgottenTasks();
               {closing.notes ||
                 "Sin observaciones"}
             </p>
+
+            <strong>
+  Incidencias registradas:
+</strong>
+
+{closingDetails
+  .filter(
+    (t) => t.completed && t.incident
+  )
+  .map((task) => (
+    <div
+      key={task.id}
+      style={{
+        marginBottom: "10px"
+      }}
+    >
+      ✅ {task.task_name}
+
+      <div
+        style={{
+          marginLeft: "20px",
+          color: "#b45309"
+        }}
+      >
+        ⚠️ {task.incident}
+      </div>
+    </div>
+  ))}
+
+  {closingDetails.filter(
+  (t) => t.completed && t.incident
+).length === 0 && (
+  <div>
+    ✅ Sin incidencias en tareas completadas
+  </div>
+)}
 
             <strong>
               Tareas pendientes:
