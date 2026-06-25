@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import "./App.css";
 
 const ADMIN_PASSWORD = "1234";
 
@@ -22,12 +23,13 @@ function App() {
   const [closings, setClosings] = useState([]);
   const [selectedClosing, setSelectedClosing] = useState(null);
   const [closingDetails, setClosingDetails] = useState([]);
+  const [openingIncidents, setOpeningIncidents] = useState([]);
   const [forgottenTasks, setForgottenTasks] = useState({});
   const [openedEmployee, setOpenedEmployee] = useState(null);
   const [taskIncidents, setTaskIncidents] = useState({});
   const [lastClosing, setLastClosing] = useState(null);
-const [openingEmployee, setOpeningEmployee] = useState("");
-const [openingTasks, setOpeningTasks] = useState([]);
+  const [openingEmployee, setOpeningEmployee] = useState("");
+  const [openingTasks, setOpeningTasks] = useState([]);
 
   // --- Carga de datos ---
 
@@ -72,25 +74,54 @@ const [openingTasks, setOpeningTasks] = useState([]);
   setOpeningTasks(tasks || []);
 }
 
+  async function reportOpeningIncident(task) {
+    if (!openingEmployee) {
+      alert("Selecciona empleado");
+      return;
+    }
+
+    const observation = prompt("Describe la incidencia detectada");
+
+    if (!observation?.trim()) return;
+
+    const { error } = await supabase
+      .from("opening_incidents")
+      .insert({
+        closing_id: lastClosing.id,
+        task_name: task.task_name,
+        employee: openingEmployee,
+        observation: observation.trim(),
+      });
+
+    if (error) {
+      alert(`Error guardando incidencia: ${error.message}`);
+      return;
+    }
+
+    alert("Incidencia guardada");
+  }
+
   async function loadForgottenTasks() {
 
-  const { data: closings } = await supabase
-    .from("closings")
-    .select("id,responsible");
-
-  const { data: tasks } = await supabase
-    .from("closing_tasks")
-    .select("*");
+  const [{ data: closings }, { data: tasks }] = await Promise.all([
+    supabase
+      .from("closings")
+      .select("id,responsible"),
+    supabase
+      .from("closing_tasks")
+      .select("*"),
+  ]);
 
   const stats = {};
+  const closingsById = new Map(
+    (closings || []).map((closing) => [closing.id, closing])
+  );
 
-  tasks.forEach((task) => {
+  (tasks || []).forEach((task) => {
 
     if (task.completed) return;
 
-    const closing = closings.find(
-      (c) => c.id === task.closing_id
-    );
+    const closing = closingsById.get(task.closing_id);
 
     if (!closing) return;
 
@@ -116,15 +147,24 @@ const [openingTasks, setOpeningTasks] = useState([]);
   if (selectedClosing === id) {
     setSelectedClosing(null);
     setClosingDetails([]);
+    setOpeningIncidents([]);
     return;
   }
 
-  const { data } = await supabase
-    .from("closing_tasks")
-    .select("*")
-    .eq("closing_id", id);
+  const [{ data: tasks }, { data: incidents }] = await Promise.all([
+    supabase
+      .from("closing_tasks")
+      .select("*")
+      .eq("closing_id", id),
+    supabase
+      .from("opening_incidents")
+      .select("*")
+      .eq("closing_id", id)
+      .order("created_at", { ascending: true }),
+  ]);
 
-  setClosingDetails(data || []);
+  setClosingDetails(tasks || []);
+  setOpeningIncidents(incidents || []);
   setSelectedClosing(id);
 }
 
@@ -168,20 +208,6 @@ const [openingTasks, setOpeningTasks] = useState([]);
       .eq("active", true)
       .order("name");
     setEmployees(data || []);
-  }
-
-  async function loadActiveClosing() {
-    const { data } = await supabase
-      .from("active_closing")
-      .select("*")
-      .eq("id", 1)
-      .single();
-
-    if (data?.started) {
-  setResponsible(data.responsible || "");
-  setNotes(data.notes || "");
-  setShowExistingClosing(true);
-}
   }
 
   // --- Tareas ---
@@ -361,9 +387,39 @@ if (insertError) {
   // --- Efectos ---
 
   useEffect(() => {
-    loadTasks();
-    loadEmployees();
-    loadActiveClosing();
+    let isMounted = true;
+
+    async function loadInitialData() {
+      const [tasksResult, employeesResult, activeClosingResult] = await Promise.all([
+        supabase
+          .from("tasks")
+          .select("*")
+          .order("sort_order"),
+        supabase
+          .from("employees")
+          .select("*")
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("active_closing")
+          .select("*")
+          .eq("id", 1)
+          .single(),
+      ]);
+
+      if (!isMounted) return;
+
+      setTasks(tasksResult.data || []);
+      setEmployees(employeesResult.data || []);
+
+      if (activeClosingResult.data?.started) {
+        setResponsible(activeClosingResult.data.responsible || "");
+        setNotes(activeClosingResult.data.notes || "");
+        setShowExistingClosing(true);
+      }
+    }
+
+    loadInitialData();
 
     const channel = supabase
       .channel("tasks-realtime")
@@ -375,27 +431,33 @@ if (insertError) {
       .subscribe();
 
     return () => {
+      isMounted = false;
       supabase.removeChannel(channel);
     };
   }, []);
 
   // --- Render ---
 
+  const completedTaskCount = tasks.filter((task) => task.completed).length;
+  const pendingTaskCount = tasks.length - completedTaskCount;
+
   return (
-    <div
-      style={{
-        maxWidth: "700px",
-        margin: "auto",
-        padding: "20px",
-        fontFamily: "Arial",
-      }}
-    >
-      <h1>Checklist Diaria</h1>
+    <div className="app-shell">
+      <header className="app-header">
+        <p className="app-kicker">Bar · cierre y apertura</p>
+        <h1>Checklist Diaria</h1>
+        <div className="status-strip" aria-label="Resumen de tareas">
+          <span>{tasks.length} tareas</span>
+          <span>{completedTaskCount} completadas</span>
+          <span>{pendingTaskCount} pendientes</span>
+        </div>
+      </header>
 
       {/* PANTALLA HOME */}
       {screen === "home" && (
-        <div>
+        <div className="home-grid">
           <button
+  className="menu-card menu-card-primary"
   onClick={() => {
     if (showExistingClosing) {
       return;
@@ -403,17 +465,13 @@ if (insertError) {
 
     setScreen("closing");
   }}
-  style={{
-    width: "100%",
-    padding: "20px",
-    marginBottom: "15px",
-    fontSize: "18px",
-  }}
 >
-  📝 Cierre diario
+  <span>Cierre diario</span>
+  <small>Marca las tareas hechas y deja anotado cualquier problema antes de cerrar.</small>
 </button>
 {showExistingClosing && (
   <div
+    className="notice-card"
     style={{
       border: "2px solid orange",
       borderRadius: "10px",
@@ -518,22 +576,20 @@ setSelectedResponsible("");
   </div>
 )}
 <button
+  className="menu-card"
   onClick={() => {
+  setOpeningEmployee("");
   loadLastClosing();
   setScreen("opening");
 }}
-  style={{
-    width: "100%",
-    padding: "20px",
-    marginBottom: "15px",
-    fontSize: "18px",
-  }}
 >
-  🌅 Apertura
+  <span>Apertura</span>
+  <small>Revisa lo que dejó el cierre anterior y avisa si encuentras algo mal.</small>
 </button>
 
           {/* BOTÓN ADMINISTRAR — FIX: ahora cambia screen a "admin" */}
           <button
+            className="admin-entry-button"
             onClick={() => {
               const password = prompt("Contraseña administrador");
               if (password === ADMIN_PASSWORD) {
@@ -543,7 +599,6 @@ setSelectedResponsible("");
                 alert("Contraseña incorrecta");
               }
             }}
-            style={{ padding: "10px" }}
           >
             ⚙️ Administrar
           </button>
@@ -552,7 +607,7 @@ setSelectedResponsible("");
 
       {/* PANTALLA ADMIN */}
       {screen === "admin" && isAdmin && (
-        <div style={{ maxWidth: "700px", margin: "auto" }}>
+        <div className="panel-card">
           <h2>⚙️ Panel Administrador</h2>
 
           <button
@@ -790,7 +845,7 @@ loadForgottenTasks();
             </p>
 
             <strong>
-  Incidencias registradas:
+  Incidencias de cierre:
 </strong>
 
 {closingDetails
@@ -824,6 +879,45 @@ loadForgottenTasks();
     ✅ Sin incidencias en tareas completadas
   </div>
 )}
+
+            <strong>
+              Incidencias de apertura:
+            </strong>
+
+            {openingIncidents.map((incident) => (
+              <div
+                key={incident.id}
+                style={{
+                  marginBottom: "10px"
+                }}
+              >
+                🌅 {incident.task_name}
+
+                <div
+                  style={{
+                    marginLeft: "20px",
+                    color: "#b45309"
+                  }}
+                >
+                  ⚠️ {incident.observation}
+                </div>
+
+                <div
+                  style={{
+                    marginLeft: "20px",
+                    color: "#555"
+                  }}
+                >
+                  Registrado por {incident.employee}
+                </div>
+              </div>
+            ))}
+
+            {openingIncidents.length === 0 && (
+              <div>
+                ✅ Sin incidencias registradas en apertura
+              </div>
+            )}
 
             <strong>
               Tareas pendientes:
@@ -964,7 +1058,13 @@ loadForgottenTasks();
       ))}
     </select>
 
-    {lastClosing && (
+    {!openingEmployee && (
+      <div className="notice-card opening-notice">
+        Selecciona un empleado para revisar el último cierre y reportar incidencias.
+      </div>
+    )}
+
+    {openingEmployee && lastClosing && (
       <div
         style={{
           border: "1px solid #ccc",
@@ -991,7 +1091,7 @@ loadForgottenTasks();
       </div>
     )}
 
-    {openingTasks.map((task) => (
+    {openingEmployee && openingTasks.map((task) => (
       <div
         key={task.id}
         style={{
@@ -1021,44 +1121,7 @@ loadForgottenTasks();
 
         {task.completed && (
           <button
-            onClick={async () => {
-
-              if (!openingEmployee) {
-                alert(
-                  "Selecciona empleado"
-                );
-                return;
-              }
-
-              const observation =
-                prompt(
-                  "Describe la incidencia detectada"
-                );
-
-              if (!observation)
-                return;
-
-              await supabase
-                .from(
-                  "opening_incidents"
-                )
-                .insert({
-                  closing_id:
-                    lastClosing.id,
-
-                  task_name:
-                    task.task_name,
-
-                  employee:
-                    openingEmployee,
-
-                  observation
-                });
-
-              alert(
-                "Incidencia guardada"
-              );
-            }}
+            onClick={() => reportOpeningIncident(task)}
             style={{
               marginTop: "10px"
             }}
@@ -1159,12 +1222,7 @@ setClosingStarted(true);
 </div>
 
           {/* FIX: cada tarea tiene su propio div contenedor con key */}
-          {[...tasks]
-  .sort(
-    (a, b) =>
-      a.completed - b.completed
-  )
-  .map((task) => (
+          {tasks.map((task) => (
             <div
               key={task.id}
               style={{
